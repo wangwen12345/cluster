@@ -1,0 +1,313 @@
+集群与存储   5天
+attached 附加的
+
+集群: 
+LB  (LVS    Haproxy)    day02
+HA (keepalived)  day03
+ 
+存储:
+共享存储： iscsi   nfs   udev   multipath (day01)
+分布式文件系统  ：CEPH   (day04  day05) 存储集群
++++++++++++++++++++++++++
+存储的什么？ 数据
+存储介质？    硬盘    内存
+存储方式？    本机存储         网络存储
+存储性能？    可靠性  安全性
+存储技术分类？
+DAS(直连式存储)
+
+NAS(网络技术存储)
+--->Network Attached Storage
+------>一种专用数据存储服务器,以数据未中心,将存储设备与服务器彻底分离,集中管理数据,从而释放宽带,提高性能,降低总拥有成本,保护投资
+------>用户通过TCP/IP协议访问数据
+
+SAN (存储区域网络)
+------>Storage Area Network
+----------->通过光纤交换机,光纤路由器,光纤集线器等设备将磁盘陈列,磁带等存储设备与相关服务器连接起来,形成高速专用网络
+-----------组成部分:路由器,光纤交换机 ; 接口:scsi,fc (Fiber Channel，光纤通道技术);  通信协议:ip,scsi(小型计算机系统接口（英语：Small Computer System Interface)
+存储的目标
+--------存储是根据不同的应用环境通过采取合理、安全、有效的方式将数据保存到某些介质上并能保证有效的访问
+--------一方面它是数据临时或长期驻留的物理媒介
+---------另一方面,它是保证数据完整安全存放的方式或行为
+---------存储就是把这两个方面结合起来,向客户提供一套数据存放解决方案
+
+
+============================udev---iscsi=============================================
+一、配置ISCSI
+前端应用（网站服务器）192.168.4.50
+后端存储（提供存储设备的服务器） 192.168.4.57  /dev/vdc(6G)
+
+1.1 配置后端存储
+a、装包
+yum -y install targetcli
+
+b、共享存储磁盘 
+#]targetcli
+1 给共享的本地物理硬盘起名  /> backstores/block create diskb /dev/vdb
+2 定义iqn名称               /> /iscsi create iqn.2018-10.cn.tedu:storage51:vdb
+3 定义ACL（访问列表）       /> iscsi/iqn.2018-10.cn.tedu:storage51:vdb/tpg1/acls create iqn.2018-10.cn.tedu.client50
+4 绑定本地物理硬盘和iqn名称绑定  /> iscsi/iqn.2018-10.cn.tedu:storage51:vdb/tpg1/luns create /backstores/block/diskb  
+5 设置服务使用的ip地址和端口（0.0.0.0:3260） /> iscsi/iqn.2018-10.cn.tedu:storage51:vdb/tpg1/portals/ create 0.0.0.0 3260
+/> saveconfig 
+exit
+
+6  ]#cat  /etc/target/saveconfig.josn
+c、启动服务
+systemctl start target
+netstat  -utnlp  | grep  :3260
+
+1.2 配置前端应用
+装包
+[root@client50 ~]# yum list | grep -i initiator
+[root@mysql50 ~]# rpm -q iscsi-initiator-utils.i686 
+
+发现设备
+man iscsiadm
+/EXAM
+
+[root@client50 ~]# iscsiadm --mode discoverydb --type sendtargets --portal 192.168.1.51 --discover
+[root@client50 ~]# iscsiadm --mode node --targetname iqn.2018-10.cn.tedu:storage51:vdb  --portal 192.168.4.51:3260 --login      (--logout登出该共享盘)
+
+启动服务
+systemctl restart iscsi
+
+使用共享存储设备：分区|格式化|挂载
+fdisk /dev/sda
+mkfs.ext4 /dev/sda1
+
+mount /dev/sda1 /var/www/html     //临时挂载
+vim /etc/fstab                     //永久挂载
+UUID="3517e25b-fcae-4740-9a66-b32bcc224342" /var/www/html ext4 _netdev 0 0
+
+
+
+=======================udev主配置文件===================================
+二、配置udev
+---->只有连到系统上来的设备才在/dev下创建设备文件
+----->与主、次设备编号无关
+----->为设备提供持久、一致的名字
+2.1 获取系统已加载硬件设备信息(udevadm --help)
+[root@client50 ~]# udevadm info -q path -n /dev/sdb
+/devices/platform/host6/session4/target6:0:0/6:0:0:0/block/sdb
+[root@client50 ~]# udevadm info -q all -p /devices/platform/host6/session4/target6:0:0/6:0:0:0/block/sdb -a
+
+2.2 编写udev规则文件(信息来自获取系统已加载的硬件设备信息)
+[root@client50 ~]# vim /etc/udev/rules.d/50-iscsidisk.rules
+SUBSYSTEM=="block",ATTR{size}=="10485760",ATTRS{model}=="diskb           ",ATTRS{vendor}=="LIO-ORG ",
+       设备类型                         大小                设备名称                                      厂商
+2.3 重新加载udev规则文件
+[root@client50 ~]# iscsiadm --mode node --targetname iqn.2018-10.cn.tedu:storage51:vdb  --portal 192.168.4.51:3260 --logout
+[root@client50 ~]# iscsiadm --mode node --targetname iqn.2018-10.cn.tedu:storage51:vdb  --portal 192.168.4.51:3260 --login
+2.4 验证udev规则文件
+fdisk  /dev/iscsi/vdb  ->d ->回车
+fdisk  /dev/iscsi/vdb   ->n ->p(主分区) ->回车
+mkfs.ext4 /dev/iscsi/vdb
+mount /dev/iscsi/vdb /var/www/html
+
+
+======================multipath========================
+三、多路径 multipath (在前端应用服务器上配置)
+[root@client50 ~]# vim /etc/sysconfig/network-scripts/ifcfg-eth1
+IPADDR=192.168.2.50
+PREFIX=24
+[root@client50 ~]# cd /etc/udev/rules.d/
+[root@client50 rules.d]# ls
+50-iscsidisk.rules  70-persistent-ipoib.rules
+[root@client50 rules.d]# mv 50-iscsidisk.rules 50-iscsidisk.rules.bak
+3.1 装包
+[root@client50]# yum -y install device-mapper-multipath.x86_64
+3.2 修改配置文件
+[root@client50 ~]# mpathconf --user_friendly_names n //创建配置文件并启用多路径
+[root@client50 ~]# ls /etc/multipath.conf 
+[root@client50 ~]# /lib/udev/scsi_id --whitelisted --device=/dev/sdb   //获取wwid(全球识别符)
+3600140543170dd63ac94032954be8a9a
+[root@client50 ~]# vim /etc/multipath.conf 
+末尾添加如下内容
+multipaths {
+       multipath {
+       wwid "3600140543170dd63ac94032954be8a9a"
+       alias mpatha
+                }
+}
+
+3.3 启动服务
+systemctl start multipathd.service
+systemctl enable multipathd.service
+3.4 测试配置
+[root@client50 ~]# multipath -rr    //重新加载多路径信息
+[root@client50 ~]# multipath -ll   //查看多路径信息
+
+
+=======================NAS--nfs================================
+四、NAS--- nfs服务
+主机51 通过nfs服务把本机的/dev/vdc 磁盘共享给网络中的所有主机。
+4.1 配置主机51
+装包
+yum -y install nfs-utils
+修改配置文件
+mkdir /sharedir
+vim /etc/exports
+/sharedir  *(rw)
+chmod o+w /sharedir
+启动服务
+systemctl restart nfs
+systemctl status nfs
+查看共享信息
+showmount -e localhost
+
+4.2客户端使用主机51 共享的存储空间
+查看共享信息
+showmount -e 192.168.4.51
+挂载共享目录
+mount 192.168.4.51:/sharedir /var/www/html
+存储数据
+
+
+
+
+
++++++++++++++++++++++++++++++++++++++++
+
+   16  yum -y  install  targetcli
+   17  systemctl status target.service 
+   18  netstat -utnlp  | grep  :3260
+
++++++++++192.168.4.50 :
+]# rpm -q iscsi-initiator-utils
+
+]# vim /etc/iscsi/initiatorname.iscsi
+InitiatorName=iqn.2018-09.cn.tedu:client50
+:wq
+
+]# iscsiadm --mode discoverydb --type sendtargets -p 192.168.4.57:3260 
+--discover
+
+]# systemctl restart iscsi
+]# systemctl restart iscsid
+
+]#lsblk
+      
+]# iscsiadm --mode node --targetname iqn名  - 192.168.4.57:3260 -u
+
+
+]#lsblk
+]# systemctl restart iscsi
+]# systemctl restart iscsid
+]#lsblk
+
++++++++++++++++++++++
+
+]# iscsiadm --mode node \ 
+--targetname iqn.2018-09.cn.tedu:storage57.vdc \
+-p 192.168.4.57:3260 -u
+
+
+]#lsblk
+
+++++++++++++++++++++++++
+[root@room9pc17 ~]# udevadm monitor --property 插入U盘时 获取信息
+
+获取已经识别设备的信息
+[root@room9pc17 ~]# udevadm  info --query=all -a --path=/block/sdb 
+
+]#cd /etc/udev/rules.d/
+
+]# vim 60-iscsidisk.rules 
+SUBSYSTEM=="block", ATTR{size}=="12582912", ATTRS{vendor}=="LIO-ORG ", ATTRS{model}=="vdc             ", SYMLINK+="iscsi/node20"
+
+:wq
+
+]# udevadm trigger 
+
+]# ls  /dev/iscsi/node20  -l
+
+
+ATTRS{manufacturer}=="HP" 厂商
+ATTRS{product}=="x725w" 型号
+TTRS{serial}=="070D57FF9846E372" 序列号
+
++++++++++++++++++++++++++++++++++++++++++++++
+[root@host50 ~]# rpm -q device-mapper-multipath
+[root@host50 ~]# systemctl  status multipathd.service 
+
+[root@host50 ~]# /usr/lib/udev/scsi_id --whitelisted --device=/dev/sda
+36001405c33813688135456cb903b0f04
+[root@host50 ~]# /usr/lib/udev/scsi_id --whitelisted --device=/dev/sdb
+36001405c33813688135456cb903b0f04
+[root@host50 ~]# mpathconf --user_friendly_names n
+[root@host50 ~]# vim /etc/multipath.conf 
+ 23 defaults {
+ 24         user_friendly_names no
+ 25         find_multipaths yes
+ 26 }
+multipaths {
+        multipath {
+                wwid "36001405c33813688135456cb903b0f04"
+                alias mpatha
+        }
+}
+:wq
+
+[root@host50 ~]# systemctl  restart multipathd.service
+
+[root@host50 ~]# ls /dev/mapper/mpatha 
+/dev/mapper/mpatha
+
+  238  multipath -rr
+  239  multipath -ll
+  245  ifdown eth0
+  246  multipath -rr
+  247  multipath -ll
++++++++++++++++++++++++++++++++++++++++
+192.168.4.57 :
+   30  fdisk  /dev/vdb 
+   31  lsblk 
+   32  mkfs.ext4 /dev/vdb1
+[root@storage57 ~]# mkdir /vdb
+[root@storage57 ~]# mount /dev/vdb1  /vdb
+
+[root@storage57 ~]# df -h /vdb
+文件系统        容量  已用  可用 已用% 挂载点
+/dev/vdb1       5.8G   24M  5.5G    1% /vdb
+[root@storage57 ~]#
+[root@storage57 ~]# rpm -q nfs-utils
+nfs-utils-1.3.0-0.48.el7.x86_64
+[root@storage57 ~]# systemctl  status nfs.service 
+
+[root@storage57 ~]# rpm -q rpcbind
+rpcbind-0.2.0-42.el7.x86_64
+[root@storage57 ~]# systemctl  status rpcbind.service
+
+
+[root@storage57 ~]# cat /etc/exports
+/vdb	*(rw)
+[root@storage57 ~]# 
+
+[root@storage57 ~]# chmod o+w /vdb/
+[root@storage57 ~]# ls -ld /vdb
+drwxr-xrwx. 3 root root 4096 9月   3 17:31 /vdb
+[root@storage57 ~]# 
+
+52  systemctl  start rpcbind.service 
+53  systemctl  start nfs.service 
+
+[root@storage57 ~]# showmount  -e localhost
+Export list for localhost:
+/vdb *
+[root@storage57 ~]#
+
+++++++++++++client
+[root@host50 ~]# showmount  -e 192.168.4.57
+Export list for 192.168.4.57:
+/vdb *
+[root@host50 ~]# 
+
+[root@host50 ~]# mount 192.168.4.57:/vdb  /var/www/html
+[root@host50 ~]# 
+[root@host50 ~]# mount | grep  -i  /var/www/html
+192.168.4.57:/vdb on /var/www/html type nfs4 (rw,relatime,vers=4.1,rsize=131072,wsize=131072,namlen=255,hard,proto=tcp,port=0,timeo=600,retrans=2,sec=sys,clientaddr=192.168.4.50,local_lock=none,addr=192.168.4.57)
+[root@host50 ~]# 
+
+echo  aaaa >  /var/www/html/d.html
+
+ll  /var/www/html/d.html
