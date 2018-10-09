@@ -1,0 +1,220 @@
+什么是集群
+------------>一组通过高速网络互联的计算机组,并以单一系统的模式加以管理
+------------>将很多服务器集中在一起,提供同一种服务,在客户端看起来像只有一个服务器
+------------>可以在付出较低成本的情况下获得在性能、可靠性、灵活性方面的相对较高的收益
+------------->任务调度是集群系统中的核心技术
+ipvsadm -A 添加虚拟服务器
+ipvsadm -E 修改虚拟服务器
+ipvsadm -D 删除虚拟服务器
+ipvsadm -C 清除所有策略
+ipvsadm -L 查看lvs规则
+
+ipvsadm -t 设置群集地址(VIP,Virtual IP)
+ipvsadm -a 添加真实服务器
+ipvsadm -e 修改真实服务器
+ipvsadm -d 删除真实服务器
+ipvsadm -s 指定集群算法
+ipvsadm -r 指定真实服务器
+-m         使用NAT模式          -i    使用TUN模式     -g 默认模式DR
+-w         为节点服务器设置权重  
+集群目的
+1 提高性能
+2 降低成本
+3 提高可扩展性
+4 增强可靠性
+
+集群分类
+ 高性能计算机集群HPC
+--通过以集群开发的并行应用程序,解决复杂的科学问题
+ 负载均衡(LB)集群
+-客服端负载在计算机急群众尽可能平均分摊
+ 高可用(HA)集群
+-避免单点故障,当一个系统发生故障时,可以快速迁移
+
+lvs是什么
+LVS可以实现高可用的,可伸缩的Web、Mail、Cache和Media等网络服务
+
+lvs工作模式
+NAT 通过网络地址转换事先的虚拟服务器  大并发访问时,调度器的性能成为瓶颈
+DR  直接使用路由技术实现虚拟服务器  节点服务器需要配置VIP  (用的最多)
+TUN  通过隧道方式实现虚拟服务器
+
+lvs目前实现了10种调度算法
+----->常用的有4种
+   轮询(round robin)
+   加权轮询(weighted round robin)
+   最少连接(least connnections)
+   加权最少连接
+
+lvs集群组成
+前端:负载均衡层
+-由一台或多台负载调度器构成
+中间:服务器组层
+-由一组实际运行应用服务的服务器组成
+底端:数据共享存储层
+-提供共享存储空间的存储区域
+
+
+50   client  
+hostname  host50 
+ifdown  eth0
+eth1      192.168.2.50
+设置网关 route add default gw 192.168.2.54 (可以与52和53通信)
+route -n
+
+51   调度器  
+hostname  lvs51
+eth0  192.168.4.51     
+eth1  192.168.2.51
+
+
+
+++++++++++++++++++++++++++++++++++++++++
+配置 VS/NAT模式 LB集群
+
+
+2  开启分发器的内核路径转发功能54
+]# sysctl  -a |grep ip_forward
+
+]# vim  /etc/sysctl.conf
+net.ipv4.ip_forward=1
+:wq
+
+]# sysctl  -p
+
+3  web服务器指定网关地址
+52  hostname web52  systemctl  start   httpd  eth0   192.168.4.52
+53  hostname web53  systemctl  start   httpd   eth0   192.168.4.53
+网关:192.168.4.54
+systemctl stop NetworkManager        //停掉网络管理服务
+route add default gw 192.168.4.54    //配置53和52网关192.168.4.54
+route -n                             //查看网关
+
+4  在网站服务器上运行网站服务并编写网页文件
+
+5 配置调度器54
+5.1 装包 
+yum -y install ipvsadm
+5.2 创建虚拟服务
+ipvsadm -A -t 192.168.2.54:80 -s rr
+修改调度算法 ipvsadm -E -t 192.168.2.54:80 -s wrr
+5.3 添加realserver
+ipvsadm -a -t 192.168.2.54:80 -r 192.168.4.52:80 -m
+ipvsadm -a -t 192.168.2.54:80 -r 192.168.4.53:80 -m
+[root@mysql54 ~]# ipvsadm -d -t 192.168.2.54:80 -r 192.168.4.52    //删除
+
+5.4 保存配置
+ipvsadm -S  或者 ipvsadm-save -n > /etc/sysconfig/ipvsadm-config
+ipvsadm -R < /etc/sysconfig/ipvsadm-config
+5.5 查看虚拟服务的状态信息
+ipvsadm -Ln
+5.6 客户端连接vip地址访问网站服务
+54:  watch -n 1 ipvsadm -Ln --stats
+50:  curl http://192.168.2.54/test.html
+ipvsadm -Z           //清空计数器
+
+
+
+++++++++++++++++++++++++
+配置vs/dr模式的LB集群
+dr 直接路由模式： 
+客户端把访问网站的请求给 分发器,
+分发器，根据调度算法分发连接请求，
+realserver 接收到分发的连接请求后，
+realserver直接和客户端通信。
+
+配置：
+1  在realserver(52和53) 和 分发器(54)上绑定vip地址  ***
+54 ifconfig eth0:1 192.168.4.253/32
+vim /etc/rc.local     //开机启用
+ifconfig eth0:1 192.168.4.253/32
+
+52 ifconfig lo:1 192.168.4.253/32
+vim /etc/rc.local     //开机启用
+ifconfig eth0:1 192.168.4.253/32
+53 ifconfig lo:1 192.168.4.253/32
+vim /etc/rc.local     //开机启用
+ifconfig eth0:1 192.168.4.253/32
+chmod +x /etc/rc.local              //必须加执行权限
+ipvsadm -A -t 192.168.4.253:80 -s rr
+ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.52:80 -g (默认-g  dr模式)
+ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.53:80
+ipvsadm -S > /etc/sysconfig/ipvsadm-config
+
+2  在realserver上修改网卡内核参数
+52和53
+vim /etc/rc.local
+echo 1 > /proc/sys/net/ipv4/conf/lo/arp_ignore
+echo 2 > /proc/sys/net/ipv4/conf/lo/arp_announce
+echo 1 > /proc/sys/net/ipv4/conf/all/arp_ignore
+echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
+chmod +x /etc/rc.local
+
+3  在分发器上创建虚拟服务并添加realserver****
+4  客户端测试：查看调度器的状态信息时 只有进入的包没有出去的包
+http://192.168.4.253/test.html
+
+192.168.4.0/24
+
+访问一个主机时，会向网络中发送广播包。
+arp广播包，在同一个网络内的主机都能收到。
+
++++++++++++++++++++++++++++++++++++++++++++++++
+LVS51:
+  602  ipvsadm -C
+  603  ipvsadm-save  > /etc/sysconfig/ipvsadm
+[root@lvs51 ~]# tail  -1 /etc/sysctl.conf 
+#net.ipv4.ip_forward = 1
+[root@lvs51 ~]#
+[root@lvs51 ~]# ifdown  eth1
+[root@lvs51 ~]# ifconfig  eth0
+
+Web52/53/54/55 :
+]# systemctl  stop NetworkManager
+]# route del default gw 192.168.4.51
+]# route  -n
+]# ifconfig  eth0
+]# systemctl  start  httpd
+
+client50:
+]#ifdown eth1
+]#ifconfig eth0
+]# systemctl  stop NetworkManager
+]# route del default gw 192.168.4.51
+]# route  -n
+++++++++++++++++++++++++++++++++++++++
+
+
+[root@lvs51 ~]# ifconfig  eth0:1 192.168.4.253/32 
+[root@lvs51 ~]# ifconfig  eth0:1
+
+
+[root@web52 ~]# ifconfig  lo:1  192.168.4.253/32
+[root@web52 ~]# ifconfig lo:1
+
+[root@web53 ~]# ifconfig  lo:1  192.168.4.253/32
+[root@web53 ~]# ifconfig lo:1
+
+
+web53 ~]# echo 1  > /proc/sys/net/ipv4/conf/lo/arp_ignore
+web53 ~]# echo 2  > /proc/sys/net/ipv4/conf/lo/arp_announce 
+web53 ~]# echo 1  > /proc/sys/net/ipv4/conf/all/arp_ignore
+web53 ~]# echo 2  > /proc/sys/net/ipv4/conf/all/arp_announce
+
+
+web52 ~]# echo 1  > /proc/sys/net/ipv4/conf/lo/arp_ignore
+web52 ~]# echo 2  > /proc/sys/net/ipv4/conf/lo/arp_announce 
+web52 ~]# echo 1  > /proc/sys/net/ipv4/conf/all/arp_ignore
+web52 ~]# echo 2  > /proc/sys/net/ipv4/conf/all/arp_announce
+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+LVS51:
+  610  ipvsadm -C
+  616  ipvsadm -Ln
+  617  ipvsadm -A -t 192.168.4.253:80 -s rr
+  618  ipvsadm -Ln
+  619  ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.52:80
+  620  ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.53:80
+  621  ipvsadm -Ln
+  622  ipvsadm-save > /etc/sysconfig/ipvsadm
+  623  ipvsadm -Ln --stats
+++++++++++++++++++++++++++++++++++++++++++++
