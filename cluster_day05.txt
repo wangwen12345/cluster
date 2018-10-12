@@ -1,4 +1,4 @@
-day05    target 目标
+day05    target 目标      osd 守护进程,存储数据  mon监控   mds文件系统存储元数据
 /etc/libvirt/qemu      //存放所有虚拟机的文件
 
 1在管理主机51上创建安装虚拟的镜像文件
@@ -202,7 +202,7 @@ node4:
 
 node1:
 ]# cd  /root/ceph_cluster
-]# ceph-deploy mds create node4    //部署节点node4
+]# ceph-deploy mds create node4    //创建元数据服务器node4
 ]# ceph-deploy admin node4         //同步配置文件和key到node4
 
 node4:
