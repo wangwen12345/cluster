@@ -1,0 +1,401 @@
+day05    target 目标
+/etc/libvirt/qemu      //存放所有虚拟机的文件
+
+1在管理主机51上创建安装虚拟的镜像文件
+[root@node1 ~]# 
+
+[root@node1 ~]# cat /etc/ceph/ceph.conf 
+[global]
+fsid = faf0d007-c3e7-4c5c-b409-6584dbba0b4c
+mon_initial_members = node1, node2, node3
+mon_host = 192.168.4.51,192.168.4.52,192.168.4.53
+auth_cluster_required = cephx               //客户端访问集群需要验证
+auth_service_required = cephx                          服务需要验证
+auth_client_required = cephx                //客户端访问需要验证           
+[root@node1 ceph]# cat ceph.client.admin.keyring 
+[client.admin]
+	key = AQCyvb5bJ2fvNhAARMswAz0K3LlWc6vYv+5R2Q==    //访问的账号和密码
+
+
+libvirt      虚拟机连接ceph服务的一个程序
+1 真实机部署ceph环境
+yum -y install ceph-common
+[root@room9pc01 ~]# scp 192.168.4.11:/etc/ceph/ceph.conf  /etc/ceph/
+[root@room9pc01 ~]# scp 192.168.4.11:/etc/ceph/ceph.client.admin.keyring /etc/ceph/
+
+2 配置libvirt secret
+编写账户信息文件（真实机操作）
+[root@room9pc01 ~]# vim secret.xml            //新建临时文件，内容如下 
+<secret ephemeral='no' private='no'>
+        <usage type='ceph'>
+                <name>client.admin secret</name>
+        </usage>
+</secret>
+#使用XML配置文件创建secret
+[root@room9pc01 ~]# virsh secret-define --file secret.xml
+ea0337fb-f9e9-41f3-bebc-c1340097e830                //随机的UUID，这个UUID对应的有账户信息
+[root@room9pc01 ~]# virsh secret-undefine ea0337fb-f9e9-41f3-bebc-c1340097e830  //删除UUID
+
+编写账户信息文件（真实机操作）
+[root@room9pc01 ~]# ceph auth get-key client.admin 
+//获取client.admin的key，或者直接查看密钥文件
+[root@room9pc01 ~]# cat /etc/ceph/ceph.client.admin.keyring
+
+设置secret，添加账户的密钥
+[root@room9pc01] virsh secret-set-value \
+--secret 733f0fd1-e3d6-4c25-a69f-6681fc19802b \         //这里secret后面是之前创建的secret的UUID
+--base64 AQBTsdRapUxBKRAANXtteNUyoEmQHveb75bISg         //base64后面是client.admin账户的密码
+
+虚拟机的XML配置文件。
+每个虚拟机都会有一个XML配置文件，包括：
+虚拟机的名称、内存、CPU、磁盘、网卡等信息
+[root@room9pc01 ~]# virsh dumpxml avpc > /tmp/avpc1.xml
+   vim /tmp/avpc1.xml
+  domain type='kvm'>
+  <name>avpc1</name>                   //虚拟机的域名
+  <uuid>d4b6f71c-2cfd-433e-9a29-fc1c7dffb9f5</uuid>    //UUID可以删除,也可以改1个数字
+
+
+   <disk type='network' device='disk'>    //磁盘类型
+      <driver name='qemu' type='raw'/>    //驱动类型
+
+      <auth username='admin'>              
+      <secret type='ceph' uuid='878d8fb5-6c26-45c4-8d1e-979aae87fd02'/>   //UUID使用virsh secret-list查看
+      </auth>
+
+       <source protocol='rbd' name='rbd/vm1-image'>    //使用的rbd镜像文件
+       <host name='192.168.4.51' port='6789'/>
+       </source>
+
+      <target dev='vda' bus='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x07' function='0x0'/>
+    </disk>
+
+[root@room9pc01 ~]# virsh define /tmp/avpc1.xml    //创建虚拟机
+定义域 avpc1（从 /tmp/avpc1.xml）
+
+
+
+
++++++++++++++++++++++++++++++++++
+day05
+[root@node1 ~]# rbd create vpc22-image --image-feature  layering --size 10G
+[root@node1 ~]# rbd create vpc44-image --image-feature  layering --size 10G
+
+
+254:
+[root@room9pc17 ~]# cat /etc/yum.repos.d/plj.repo 
+[rhel]
+name=rhel
+baseurl=file:///var/ftp/rhel
+enabled=1
+gpgcheck=0
+[mon]
+name=cephmon
+baseurl=file:///var/ftp/ceph/rhceph-2.0-rhel-7-x86_64/MON
+enabled=1
+gpgcheck=0
+[osd]
+name=cephosd
+baseurl=file:///var/ftp/ceph/rhceph-2.0-rhel-7-x86_64/OSD
+enabled=1
+gpgcheck=0
+[tools]
+name=cephtools
+baseurl=file:///var/ftp/ceph/rhceph-2.0-rhel-7-x86_64/Tools
+enabled=1
+gpgcheck=0
+
+[root@room9pc17 ~]# yum clean all ;  yum  repolist
+
+
+
+yum -y  install ceph-common
+132  scp 192.168.4.51:/etc/ceph/ceph.conf  /etc/ceph/
+133  scp 192.168.4.51:/etc/ceph/ceph.client.admin.keyring /etc/ceph/
+
+创建新虚拟机
+ls /etc/libvirt/qemu/xxx.xml  (39~44)
+
+[root@room9pc17 ~]# vim secret.xml
+<secret ephemeral='no' private='no'>
+        <usage type='ceph'>
+                <name>client.admin secret</name>
+        </usage>
+</secret>
+[root@room9pc17 ~]# 
+
+[root@room9pc17 ~]# virsh secret-define --file secret.xml
+生成 secret ebee4925-94b2-4a66-940a-6eebb96d3a26
+
+[root@room9pc17 ~]# 
+
+
+[root@room9pc17 ~]# cat /etc/ceph/ceph.client.admin.keyring 
+[client.admin]
+	key = AQCL/o1bEC3iHxAAIQLsRGXJdxQKS/0e7Ty0OQ==
+[root@room9pc17 ~]# 
+
+[root@room9pc17 ~]# virsh secret-set-value --secret ebee4925-94b2-4a66-940a-6eebb96d3a26 --base64 AQCL/o1bEC3iHxAAIQLsRGXJdxQKS/0e7Ty0OQ==
+secret 值设定
+
+[root@room9pc17 ~]# 
+
+[root@room9pc17 ~]# virsh  dumpxml vpc22 > vpc222.xml
+[root@room9pc17 ~]# vim vpc222.xml
+  9   <name>vpc7</name>
+ 10   <uuid>49ad7eca-85c1-49f4-93d1-15a34563ae57</uuid>
+ 30   <devices>
+ 31     <emulator>/usr/libexec/qemu-kvm</emulator>
+ 32     <disk type='network' device='disk'>
+ 33       <driver name='qemu' type='raw'/>
+ 34       <auth username='admin'>
+ 35         <secret type='ceph' uuid='ebee4925-94b2-4a66-940a-6eebb96d3a26'/>
+ 36       </auth>
+ 37       <source protocol='rbd' name='rbd/vpc22-image'>
+ 38            <host name='192.168.4.51' port='6789'/>   
+ 39       </source>
+ 40       <target dev='hda' bus='ide'/>
+ 41       <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+ 42     </disk>
+ 43     <disk type='block' device='cdrom'>
+:wq
+[root@room9pc17 ~]# cp  vpc222.xml  /tmp/
+[root@room9pc17 ~]# virsh define /tmp/vpc222.xml
+
+[root@room9pc17 ~]# virsh list --all
+
+root@room9pc17 ~]# virsh undefine vpc22  (取消定义)
+
+[root@room9pc17 ~]# virsh define /tmp/vpc222.xml 
+定义域 vpc222（从 /tmp/vpc222.xml）
+
+[root@room9pc17 ~]# 
+[root@room9pc17 ~]# virsh  list --all
+
++++++++++++++++++++++++++++++++++++++
+查看虚拟机serect值
+[root@room9pc17 ~]# virsh --help  | grep  secret
+ Secret (help keyword 'secret')
+    secret-define                  定义或者修改 XML 中的 secret
+    secret-dumpxml                 XML 中的 secret 属性
+    secret-get-value               secret 值输出
+    secret-list                    列出 secret
+    secret-set-value               设定 secret 值
+    secret-undefine                取消定义 secret
+[root@room9pc17 ~]# virsh secret-list
+ UUID                                  用量
+--------------------------------------------------------------------------------
+ ebee4925-94b2-4a66-940a-6eebb96d3a26  ceph client.admin secret
+
+删除虚拟机serect值
+[root@room9pc17 ~]#virsh secret-undefine ebee4925-94b2-4a66-940a-6eebb96d3a26
+
+
+CephFS+++++++++++++++++++++++++++++++++++++
+
+1、配置元数据服务器 192.168.4.54
+
+node4:
+]# yum  -y  install ceph-mds
+]# ls /etc/ceph
+
+node1:
+]# cd  /root/ceph_cluster
+]# ceph-deploy mds create node4    //部署节点node4
+]# ceph-deploy admin node4         //同步配置文件和key到node4
+
+node4:
+]# ls /etc/ceph
+]# systemctl  status ceph\*
+
+2、配置存储设备
+node4:
+[root@node4 ~]# which  rbd
+/usr/bin/rbd
+[root@node4 ~]# ceph osd pool create cephfs_data  128      //创建文件存储池
+pool 'cephfs_data' created
+[root@node4 ~]# 
+[root@node4 ~]# ceph osd pool create cephfs_metadata  128  //元数据存储池
+pool 'cephfs_metadata' created
+[root@node4 ~]# 
+
+[root@node4 ~]# ceph mds stat              //查看msd状态
+e2:, 1 up:standby
+
+创建ceph文件系统
+[root@node4 ~]# ceph fs new myfs1 cephfs_metadata cephfs_data     //元数据池在前
+new fs with metadata pool 2 and data pool 1
+[root@node4 ~]# 
+[root@node4 ~]# ceph mds stat 
+e5: 1/1/1 up {0=node4=up:active}
+[root@node4 ~]#
+
+[root@node4 ~]# ceph fs ls
+name: myfs1, metadata pool: cephfs_metadata, data pools: [cephfs_data ]
+[root@node4 ~]#
+
+cephfs_client+++++++++++++++++++++++++++++++++++++++++
+[root@client ceph]# cat ceph.client.admin.keyring 
+[client.admin]
+	key = AQCL/o1bEC3iHxAAIQLsRGXJdxQKS/0e7Ty0OQ==
+[root@client ceph]# 
+
+[root@client ceph]# mkdir  /cephfs
+
+50]# mount -t ceph 192.168.4.51:6789:/  /cephfs  -o name=admin,secret='AQCL/o1bEC3iHxAAIQLsRGXJdxQKS/0e7Ty0OQ=='
+//客户端挂载
+
+[root@client50 ~]# mount |grep cephfs  //查看挂载
+
+对象存储54++++++++++++++++++++++++++++++++++++++
+
+1）部署RGW软件包
+[root@node1 ~]# ceph-deploy install --rgw node5
+同步配置文件与密钥到node5
+[root@node1 ~]# cd /root/ceph-cluster
+[root@node1 ~]# ceph-deploy admin node5
+2）新建网关实例
+启动一个rgw服务
+[root@node1 ~]# ceph-deploy rgw create node5
+3)node5上验证
+[root@node5 ~]# ss -ntupl |grep radosgw
+]# systemctl  status  ceph\*
+
+4）修改服务端口
+登陆node5，RGW默认服务端口为7480，修改为80更方便客户端记忆和使用
+ot@node5 ceph]# vim /etc/ceph/ceph.conf 
+[global]
+fsid = 2d5fcc5b-0696-41c4-9e83-828aba162572
+mon_initial_members = node1, node2, node3
+mon_host = 192.168.4.51,192.168.4.52,192.168.4.53
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+[client.rgw.node5]
+host = node5
+rgw_frontends = "civetweb port=80"
+:wq
+[root@node5 ceph]#  ]# systemctl  restart ceph\* //重启服务(ceph-radosgw.target)
+
+client50]# curl  http://192.168.4.55                 //客服端测试
+<?xml version="1.0" encoding="UTF-8"?><ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Owner><ID>anonymous</ID><DisplayName></DisplayName></Owner><Buckets></Buckets></ListAllMyBucketsResult>[root@node1 ceph-cluster]# 
+
+
+[root@node5 ~]# radosgw-admin  user create --uid="testuser" --display-name="First User"  //在rgw55主机上创建账户
+{
+    "user_id": "yaya",
+    "display_name": "First User3",
+    "email": "",
+    "suspended": 0,
+    "max_buckets": 1000,
+    "auid": 0,
+    "subusers": [],
+    "keys": [
+        {
+            "user": "yaya",
+            "access_key": "2AHD0BTC7R774F3EU3CW",
+            "secret_key": "DMfBnBx7c0wJ7OCKdS0DFcBtN7jKVpku7XXaZtKq"
+        }
+    ],
+[root@node5 ~]# radosgw-admin user info --uid=testuser           //查看已建账户信息
+
+client50++++++++++++++++++++++++                    客户端
+]# yum -y  install s3cmd-2.0.1-1.el7.noarch.rpm
+[root@client ~]# which s3cmd
+/usr/bin/s3cmd
+[root@client ~]# 
+[root@client ~]# s3cmd --help
+
+[root@client ~]# s3cmd --configure
+[root@client ~]#  s3cmd –configure
+Access Key: 5E42OEGB1M95Y49IBG7BSecret Key: i8YtM8cs7QDCK3rTRopb0TTPBFJVXdEryRbeLGK6
+S3 Endpoint [s3.amazonaws.com]: 192.168.4.15:8000
+[%(bucket)s.s3.amazonaws.com]: %(bucket)s.192.168.4.15:8000
+Use HTTPS protocol [Yes]: No
+Test access with supplied credentials? [Y/n] Y
+Save settings? [y/N] y
+//注意，其他提示都默认回车
+
+4）创建存储数据的bucket（类似于存储数据的目录）
+[root@client ~]# s3cmd ls
+[root@client ~]# s3cmd mb s3://my_bucket     //创建目录
+Bucket 's3://my_bucket/' created
+[root@client ~]# s3cmd ls
+2018-09-05 08:36  s3://my_bucket
+
+[root@client ~]# s3cmd put /var/log/messages s3://my_bucket/log/      //将本机的文件上传到bucket
+upload: '/var/log/messages' -> 's3://my_bucket/log/messages'  [1 of 1]
+ 592146 of 592146   100% in    3s   144.67 kB/s  done
+
+[root@client ~]# s3cmd ls  s3://my_bucket/log/                        //查看
+2018-09-05 08:37    592146   s3://my_bucket/log/messages
+[root@client ~]# 
+[root@client ~]# mkdir /download
+[root@client ~]# s3cmd get s3://my_bucket/log/messages /download/     //下载
+download: 's3://my_bucket/log/messages' -> '/download/messages'  [1 of 1]
+ 592146 of 592146   100% in    0s    45.00 MB/s  done
+[root@client ~]# 
+[root@client ~]# ls /download/
+messages
+[root@client ~]# s3cmd ls  s3://my_bucket/log/
+2018-09-05 08:37    592146   s3://my_bucket/log/messages
+[root@client ~]# 
+[root@client ~]# s3cmd del  s3://my_bucket/log/messages              //删除
+delete: 's3://my_bucket/log/messages'
+[root@client ~]# 
+[root@client ~]# s3cmd ls  s3://my_bucket/log/
+[root@client ~]# 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

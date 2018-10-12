@@ -3,6 +3,14 @@
 ------------>将很多服务器集中在一起,提供同一种服务,在客户端看起来像只有一个服务器
 ------------>可以在付出较低成本的情况下获得在性能、可靠性、灵活性方面的相对较高的收益
 ------------->任务调度是集群系统中的核心技术
+
+LVS术语 (Linux Virtual Server)
+Directer Server 调度服务器
+Real server     真是服务器
+VIP             虚拟IP地址(公布给客户访问的IP地址)
+RIP             真是IP地址(集群节点上使用的ip地址)
+DIP             调度器连接节点服务器的ip地址
+
 ipvsadm -A 添加虚拟服务器
 ipvsadm -E 修改虚拟服务器
 ipvsadm -D 删除虚拟服务器
@@ -15,8 +23,9 @@ ipvsadm -e 修改真实服务器
 ipvsadm -d 删除真实服务器
 ipvsadm -s 指定集群算法
 ipvsadm -r 指定真实服务器
--m         使用NAT模式          -i    使用TUN模式     -g 默认模式DR
--w         为节点服务器设置权重  
+-m         使用NAT模式          -i    使用TUN模式     -g 模式DR(默认)
+-w         为节点服务器设置权重 
+ 
 集群目的
 1 提高性能
 2 降低成本
@@ -24,27 +33,27 @@ ipvsadm -r 指定真实服务器
 4 增强可靠性
 
 集群分类
- 高性能计算机集群HPC
+ HPC  高性能计算集群
 --通过以集群开发的并行应用程序,解决复杂的科学问题
- 负载均衡(LB)集群
+ LB   负载均衡集群
 -客服端负载在计算机急群众尽可能平均分摊
- 高可用(HA)集群
+ HA   高可用集群
 -避免单点故障,当一个系统发生故障时,可以快速迁移
 
-lvs是什么
+LVS是什么
 LVS可以实现高可用的,可伸缩的Web、Mail、Cache和Media等网络服务
 
 lvs工作模式
-NAT 通过网络地址转换事先的虚拟服务器  大并发访问时,调度器的性能成为瓶颈
+NAT 通过网络地址转换实现的虚拟服务器  大并发访问时,调度器的性能成为瓶颈
 DR  直接使用路由技术实现虚拟服务器  节点服务器需要配置VIP  (用的最多)
 TUN  通过隧道方式实现虚拟服务器
 
 lvs目前实现了10种调度算法
 ----->常用的有4种
-   轮询(round robin)
-   加权轮询(weighted round robin)
-   最少连接(least connnections)
-   加权最少连接
+   轮询         rr    (round robin)
+   加权轮询     wrr (weighted round robin)
+   最少连接      lc      (least connnections)
+   加权最少连接  wlc
 
 lvs集群组成
 前端:负载均衡层
@@ -80,7 +89,7 @@ eth1  192.168.2.51
 net.ipv4.ip_forward=1
 :wq
 
-]# sysctl  -p
+]# sysctl  -p                 //加载/etc/sysctl.conf文件
 
 3  web服务器指定网关地址
 52  hostname web52  systemctl  start   httpd  eth0   192.168.4.52
@@ -104,8 +113,8 @@ ipvsadm -a -t 192.168.2.54:80 -r 192.168.4.53:80 -m
 [root@mysql54 ~]# ipvsadm -d -t 192.168.2.54:80 -r 192.168.4.52    //删除
 
 5.4 保存配置
-ipvsadm -S  或者 ipvsadm-save -n > /etc/sysconfig/ipvsadm-config
-ipvsadm -R < /etc/sysconfig/ipvsadm-config
+ipvsadm -S  或者 ipvsadm-save -n > /etc/sysconfig/ipvsadm
+ipvsadm -R < /etc/sysconfig/ipvsadm
 5.5 查看虚拟服务的状态信息
 ipvsadm -Ln
 5.6 客户端连接vip地址访问网站服务
@@ -136,12 +145,9 @@ ifconfig eth0:1 192.168.4.253/32
 vim /etc/rc.local     //开机启用
 ifconfig eth0:1 192.168.4.253/32
 chmod +x /etc/rc.local              //必须加执行权限
-ipvsadm -A -t 192.168.4.253:80 -s rr
-ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.52:80 -g (默认-g  dr模式)
-ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.53:80
-ipvsadm -S > /etc/sysconfig/ipvsadm-config
 
-2  在realserver上修改网卡内核参数
+
+2  在realserver上修改网卡内核参数(目的:不发送ARP宣告，避免本机响应对VIP地址的查询;伪装ARP宣告数据，将VIP地址对应到本机的lo：0接口。)
 52和53
 vim /etc/rc.local
 echo 1 > /proc/sys/net/ipv4/conf/lo/arp_ignore
@@ -151,6 +157,11 @@ echo 2 > /proc/sys/net/ipv4/conf/all/arp_announce
 chmod +x /etc/rc.local
 
 3  在分发器上创建虚拟服务并添加realserver****
+ipvsadm -A -t 192.168.4.253:80 -s rr                      //创建虚拟服务并指定算法
+ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.52:80 -g (默认-g  dr模式)
+ipvsadm -a -t 192.168.4.253:80 -r 192.168.4.53:80
+ipvsadm -S > /etc/sysconfig/ipvsadm
+
 4  客户端测试：查看调度器的状态信息时 只有进入的包没有出去的包
 http://192.168.4.253/test.html
 
@@ -162,7 +173,7 @@ arp广播包，在同一个网络内的主机都能收到。
 +++++++++++++++++++++++++++++++++++++++++++++++
 LVS51:
   602  ipvsadm -C
-  603  ipvsadm-save  > /etc/sysconfig/ipvsadm
+  603  ipvsadm-save -n > /etc/sysconfig/ipvsadm
 [root@lvs51 ~]# tail  -1 /etc/sysctl.conf 
 #net.ipv4.ip_forward = 1
 [root@lvs51 ~]#
@@ -218,3 +229,38 @@ LVS51:
   622  ipvsadm-save > /etc/sysconfig/ipvsadm
   623  ipvsadm -Ln --stats
 ++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+HPC:高性能计算集群；
+LB:负载均衡集群；
+HA:高可用集群．　
+2.ipvsadm -Z   //清空LVS计数器
+3.轮询算法；最少连接算法；加权轮询算法；加权最少连接算法
+4.echo 'net.ipv4.ip_forward=1'　＞ /etc/sysctl.conf   //开启路由功能
+sysctl -p 
+5.　
+chattr +i /etc/passwd    //锁定文件不能任何操作
