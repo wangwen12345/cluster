@@ -9,6 +9,7 @@ day05    target 目标      osd 守护进程,存储数据  mon监控   mds文件
 fsid = faf0d007-c3e7-4c5c-b409-6584dbba0b4c
 mon_initial_members = node1, node2, node3
 mon_host = 192.168.4.51,192.168.4.52,192.168.4.53
+
 auth_cluster_required = cephx               //客户端访问集群需要验证
 auth_service_required = cephx                          服务需要验证
 auth_client_required = cephx                //客户端访问需要验证           
@@ -43,8 +44,8 @@ ea0337fb-f9e9-41f3-bebc-c1340097e830                //随机的UUID，这个UUID
 
 设置secret，添加账户的密钥
 [root@room9pc01] virsh secret-set-value \
---secret 733f0fd1-e3d6-4c25-a69f-6681fc19802b \         //这里secret后面是之前创建的secret的UUID
---base64 AQBTsdRapUxBKRAANXtteNUyoEmQHveb75bISg         //base64后面是client.admin账户的密码
+--secret  ea0337fb-f9e9-41f3-bebc-c1340097e830 \         //这里secret后面是之前创建的secret的UUID
+--base64 AQCyvb5bJ2fvNhAARMswAz0K3LlWc6vYv+5R2Q==         //base64后面是client.admin账户的密码
 
 虚拟机的XML配置文件。
 每个虚拟机都会有一个XML配置文件，包括：
@@ -53,7 +54,7 @@ ea0337fb-f9e9-41f3-bebc-c1340097e830                //随机的UUID，这个UUID
    vim /tmp/avpc1.xml
   domain type='kvm'>
   <name>avpc1</name>                   //虚拟机的域名
-  <uuid>d4b6f71c-2cfd-433e-9a29-fc1c7dffb9f5</uuid>    //UUID可以删除,也可以改1个数字
+  <uuid>d4b6f71c-2cfd-433e-9a29-fc1c7dffb9f5</uuid>    //UUID可以删除,也可以随意改变使其与之前不一样
 
 
    <disk type='network' device='disk'>    //磁盘类型
@@ -213,6 +214,8 @@ node4:
 node4:
 [root@node4 ~]# which  rbd
 /usr/bin/rbd
+
+创建ceph存储池(需要建文件存储池和元数据存储池)
 [root@node4 ~]# ceph osd pool create cephfs_data  128      //创建文件存储池
 pool 'cephfs_data' created
 [root@node4 ~]# 
@@ -244,7 +247,7 @@ cephfs_client+++++++++++++++++++++++++++++++++++++++++
 [root@client ceph]# mkdir  /cephfs
 
 50]# mount -t ceph 192.168.4.51:6789:/  /cephfs  -o name=admin,secret='AQCL/o1bEC3iHxAAIQLsRGXJdxQKS/0e7Ty0OQ=='
-//客户端挂载
+//客户端挂载文件系统
 
 [root@client50 ~]# mount |grep cephfs  //查看挂载
 
@@ -348,6 +351,45 @@ delete: 's3://my_bucket/log/messages'
 [root@client ~]# 
 
 
+
+,什么是CephFS
+(1)分布式文件系统(DIstributed File System)是指文件管理系统管理的物理存储资源不一定直接连接在本地节点上二是同过计算机网络与节点相连接
+(2)CephFS使用Ceph集群提供与POSIX兼容的文件系统
+(3)允许Linux直接将Ceph存储mount到本地
+
+
+2,什么是对象存储
+键值存储,通其接口指令,也就是简单的GET,PUT,DEL和其他扩展,向存储服务上传下载数据
+对象存储中所有数据都被认为是一个对象,所以任何数据都可以存入对象存储服务器.
+
+
+3.文件系统存储方式:
+(1)创建存储池指令(自己命名即可):
+ceph osd pool create cephfs_data 128
+ceph osd pool create cephfs_metadata 128
+(2)查看ceph的mds状态
+ceph mds stat
+(3)创建文件系统指令:
+ceph fs new myfs1 cephfs_data cephfs_metadata
+(4)客户机挂载文件指令(地址192.168.4.11):
+mount -t ceph 192.168.4.11:6789:/ /mnt/cephfs -0 name=admin,secret=...
+
+
+4.对象存储:
+(1)请写出在管理主机上启动node5主机上一个rgw服务指令:
+ceph-deploy rgw create node5
+(2)登录node5,在配置文件/etc/ceph/ceph.conf中,RGW默认服务端口7480修改为80
+[client.rgw.node5]
+host = node5
+rgw_frontends = "civetweb port=80"
+(3)在node5上创建RGW账户
+radosgw-admin user create --uid="testuser" --display-name="First User"
+
+
+5.libvirt secret的作用是什么?
+KVM虚拟机需要使用librbd才可以访问ceph集群
+libvirt访问ceph又需要账号认证
+所以这里需要给libvirt设置 secret配置账户信息和秘钥信息
 
 
 
